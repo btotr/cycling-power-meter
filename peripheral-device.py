@@ -47,7 +47,7 @@ class BLE_Cycling_Power:
 
     def publish_task(self, connection):
         while True:
-            
+
             power = int(weight.get_weight())*2 #todo
 
             self.bleBuffer[0] = 0x20 # 00100000
@@ -58,16 +58,15 @@ class BLE_Cycling_Power:
             self.bleBuffer[5] = cadans.get_revolutions() >> 8
             self.bleBuffer[6] = cadans.get_lastRevTime() & 0xff
             self.bleBuffer[7] = cadans.get_lastRevTime() >> 8
-            
+
             binary_string = binascii.hexlify(self.bleBuffer).decode('utf-8')
             print(binary_string)
 
-            #self.measurement_characteristic.write(self.bleBuffer)
             self.location_characteristic.write(self.slBuffer)
             self.feature_characteristic.write(self.fBuffer)
             self.measurement_characteristic.notify(connection,self.bleBuffer)
             await asyncio.sleep_ms(1000)
-    
+
     async def connection_task(self):
         while True:
             async with await aioble.advertise(
@@ -89,10 +88,10 @@ class Weight:
 
     def __init__(self):
         self.weight = 200
-    
+
     def get_weight(self):
         return self.weight
-        
+
     async def load_sensor_task(self):
         while True:
             self.weight += random.uniform(-0.5, 0.5)
@@ -109,10 +108,10 @@ class Cadans:
     def __init__(self):
         self.revolutions = 0
         self.lastRevTime = 0
-    
+
     def get_revolutions(self):
         return self.revolutions
-    
+
     def get_lastRevTime(self):
         return self.lastRevTime
 
@@ -129,7 +128,7 @@ async def main():
     t3 = asyncio.create_task(cadans.hall_sensor_task())
     t4 = asyncio.create_task(weight.load_sensor_task())
     await asyncio.gather(t2, t3, t4)
-    
+
 cadans = Cadans()
 weight = Weight()
 cycling_power = BLE_Cycling_Power()
