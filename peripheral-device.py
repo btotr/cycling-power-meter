@@ -50,17 +50,17 @@ class BLE_Cycling_Power:
 
             power = int(weight.get_weight())*2 #todo
 
-            print(cadans.get_revolutions())
-            print(cadans.get_lastRevTime())
+            print(cadance.get_revolutions())
+            print(cadance.get_lastRevTime())
 
             self.bleBuffer[0] = 0x20 # 00100000
             self.bleBuffer[1] = 0x00
             self.bleBuffer[2] = power & 0xff
             self.bleBuffer[3] = power >> 8
-            self.bleBuffer[4] = cadans.get_revolutions() & 0xff
-            self.bleBuffer[5] = cadans.get_revolutions() >> 8
-            self.bleBuffer[6] = cadans.get_lastRevTime() & 0xff
-            self.bleBuffer[7] = cadans.get_lastRevTime() >> 8
+            self.bleBuffer[4] = cadance.get_revolutions() & 0xff
+            self.bleBuffer[5] = cadance.get_revolutions() >> 8
+            self.bleBuffer[6] = cadance.get_lastRevTime() & 0xff
+            self.bleBuffer[7] = cadance.get_lastRevTime() >> 8
 
             binary_string = binascii.hexlify(self.bleBuffer).decode('utf-8')
             print(binary_string)
@@ -106,11 +106,11 @@ class Weight:
 
 '''
 
-cadans
+cadance
 
 '''
 
-class Cadans:
+class Cadance:
 
     def __init__(self):
         self.revolutions = 0
@@ -132,11 +132,11 @@ class Cadans:
 async def main():
 
     t2 = asyncio.create_task(cycling_power.connection_task())
-    t3 = asyncio.create_task(cadans.hall_sensor_task())
+    t3 = asyncio.create_task(cadance.hall_sensor_task())
     t4 = asyncio.create_task(weight.load_sensor_task())
     await asyncio.gather(t2, t3, t4)
 
-cadans = Cadans()
+cadance = Cadance()
 weight = Weight()
 cycling_power = BLE_Cycling_Power()
 asyncio.run(main())
