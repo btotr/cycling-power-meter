@@ -45,10 +45,13 @@ class BLE_Cycling_Power:
         self.fBuffer[3] = 0x08 # crank revolution
 
 
-    def publish_task(self, connection):
+    async def publish_task(self, connection):
         while True:
 
             power = int(weight.get_weight())*2 #todo
+
+            print(cadans.get_revolutions())
+            print(cadans.get_lastRevTime())
 
             self.bleBuffer[0] = 0x20 # 00100000
             self.bleBuffer[1] = 0x00
@@ -72,11 +75,15 @@ class BLE_Cycling_Power:
             async with await aioble.advertise(
                 250_000,
                 name="open-power",
-                services=[self.power_service_uuid]
+                services=[self.power_service_uuid],
+                appearance=1920
+                #manufacturer=(0xABCD, b"1234")
             ) as connection:
                 asyncio.create_task(cycling_power.publish_task(connection))
                 print("Connection from", connection.device)
-                await connection.disconnected()
+                #await connection.disconnected()
+                while connection.is_connected():
+                    await asyncio.sleep_ms(5000)
 
 '''
 
