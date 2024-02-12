@@ -3,11 +3,11 @@ import sys
 sys.path.append("")
 
 from micropython import const
+from machine import Pin, ADC
 
 import asyncio
 import aioble
 import bluetooth
-
 import random
 import struct
 import time
@@ -44,7 +44,7 @@ class BLE_Cycling_Power:
             battery_level =  struct.pack('<B', int(battery.get_level()))
             print(connection)
 
-            print(cadance.get_revolutions())
+            print(battery.get_level())
             print(cadance.get_lastRevTime())
 
             power_data =  struct.pack('<8B',
@@ -72,7 +72,6 @@ class BLE_Cycling_Power:
         print("Connection from", connection.device)
         while connection.is_connected():
             await cycling_power.publish_task(connection)
-        
 
     async def connection_task(self):
         while True:
@@ -93,14 +92,17 @@ class Battery:
 
     def __init__(self):
         self.level = 60
+        self.adc = ADC(Pin(32))
+        self.adc.atten(ADC.ATTN_11DB)  # set 11dB input attenuation (voltage range roughly 0.0v - 3.6v)
+        self.adc.width(ADC.WIDTH_9BIT)  # set 9 bit return values (returned range 0-511)
 
     def get_level(self):
         return self.level
 
     async def level_task(self):
         while True:
-            self.level += random.uniform(-0.5, 0.5)
-            await asyncio.sleep_ms(1000)
+            self.level = self.adc.read()/511*100 #random.uniform(-0.5, 0.5)
+            await asyncio.sleep(120)
 
 '''
 
@@ -132,6 +134,7 @@ class Cadance:
     def __init__(self):
         self.revolutions = 0
         self.lastRevTime = 0
+        self.rpm = 30
 
     def get_revolutions(self):
         return self.revolutions
@@ -141,8 +144,9 @@ class Cadance:
 
     async def hall_sensor_task(self):
         while True:
+            self.rpm += random.uniform(-1, 1) #1024*60*self.revolutions / diffTime
             self.revolutions += 1
-            self.lastRevTime = time.ticks_diff(time.ticks_ms(), self.lastRevTime)
+            self.lastRevTime = int(self.lastRevTime + 1024*60/self.rpm)
             await asyncio.sleep_ms(800)
 
 # Run tasks.
