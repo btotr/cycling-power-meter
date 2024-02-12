@@ -2,9 +2,7 @@ import sys
 
 sys.path.append("")
 
-from machine import Pin, I2C
 from micropython import const
-from esp32 import *
 
 import asyncio
 import aioble
@@ -12,7 +10,6 @@ import bluetooth
 
 import random
 import struct
-import binascii
 import time
 
 '''
@@ -39,57 +36,46 @@ class BLE_Cycling_Power:
         self.battery_level_characteristic = aioble.Characteristic(self.battery_service, bluetooth.UUID(0x2A19), read=False, notify=True)
         # register services
         aioble.register_services(self.power_service, self.device_information_service, self.battery_service)
-        # initialise buffers
-        self.bleBuffer = bytearray(8)
-        self.slBuffer = bytearray(1)
-        self.fBuffer = bytearray(4)
-        self.slBuffer[0] = 0x05
-        self.fBuffer[0] = 0x00
-        self.fBuffer[1] = 0x10 # non distribution 
-        self.fBuffer[2] = 0x00
-        self.fBuffer[3] = 0x08 # crank revolution
-        # write device information
-        self.manufacturer_characteristic.write(struct.pack('5s', b'btotr'))
-        self.software_rev_characteristic.write(struct.pack('4s', b'v0.1'))
 
     async def publish_task(self, connection):
         while True:
 
             power = int(weight.get_weight())*2 #todo
+            battery_level = int(battery.get_level())
+            print(connection)
 
             #print(cadance.get_revolutions())
             #print(cadance.get_lastRevTime())
 
-            self.bleBuffer[0] = 0x20 # 00100000
-            self.bleBuffer[1] = 0x00
-            self.bleBuffer[2] = power & 0xff
-            self.bleBuffer[3] = power >> 8
-            self.bleBuffer[4] = cadance.get_revolutions() & 0xff
-            self.bleBuffer[5] = cadance.get_revolutions() >> 8
-            self.bleBuffer[6] = cadance.get_lastRevTime() & 0xff
-            self.bleBuffer[7] = cadance.get_lastRevTime() >> 8
-
-            #binary_string = binascii.hexlify(self.bleBuffer).decode('utf-8')
-            #print(binary_string)
-
-            self.location_characteristic.write(self.slBuffer)
-            self.feature_characteristic.write(self.fBuffer)
-            self.measurement_characteristic.notify(connection, self.bleBuffer)
-            self.battery_level_characteristic.notify(connection, struct.pack('h', int(battery.get_level())))
+            self.measurement_characteristic.notify(connection, struct.pack('<8H',
+                0x20, 
+                0x00, 
+                power & 0xff, 
+                power >> 8, 
+                cadance.get_revolutions() & 0xff, 
+                cadance.get_revolutions() >> 8,
+                cadance.get_lastRevTime() & 0xff, 
+                cadance.get_lastRevTime() >> 8))
+            self.battery_level_characteristic.notify(connection, struct.pack('<h', battery_level))
             await asyncio.sleep_ms(1000)
 
     async def connection_task(self):
         while True:
             async with await aioble.advertise(
                 250_000,
-                name="open-kinetic",
+                name="open-kinetic-pwr",
                 services=[self.power_service_uuid, self.device_information_service_uuid],
                 appearance=1156
             ) as connection:
-                asyncio.create_task(cycling_power.publish_task(connection))
+                # write power specific information
+                self.location_characteristic.write(struct.pack('<H', 0x05)) # left crunk
+                self.feature_characteristic.write(struct.pack('<4H', 0x00, 0x10, 0x00, 0x08)) # non distribution and crank revolution
+                # write device information
+                self.manufacturer_characteristic.write(struct.pack('12s', b'open-kinetic'))
+                self.software_rev_characteristic.write(struct.pack('6s', b'v0.1.1'))
                 print("Connection from", connection.device)
                 while connection.is_connected():
-                    await asyncio.sleep_ms(5000)
+                    await cycling_power.publish_task(connection)
 
 '''
 
@@ -159,7 +145,7 @@ async def main():
     t2 = asyncio.create_task(cycling_power.connection_task())
     t3 = asyncio.create_task(cadance.hall_sensor_task())
     t4 = asyncio.create_task(weight.load_sensor_task())
-    await asyncio.gather(t2, t3, t4)
+    await asyncio.gather(t1, t2, t3, t4)
 
 cadance = Cadance()
 weight = Weight()
