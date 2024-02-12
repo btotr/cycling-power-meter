@@ -62,23 +62,26 @@ class BLE_Cycling_Power:
             self.measurement_characteristic.write(power_data)
             await asyncio.sleep_ms(1000)
 
+    async def server_task(self, connection):
+        # write power specific information
+        self.location_characteristic.write(struct.pack('<B',0x05)) # left crunk
+        self.feature_characteristic.write(struct.pack('<4B', 0x00, 0x10, 0x00, 0x08)) # non distribution and crank revolution
+        # write device information
+        self.manufacturer_characteristic.write(struct.pack('<12s', b'open-kinetic'))
+        self.software_rev_characteristic.write(struct.pack('<6s', b'v0.1.1'))
+        print("Connection from", connection.device)
+        while connection.is_connected():
+            await cycling_power.publish_task(connection)
+        
+
     async def connection_task(self):
         while True:
-            async with await aioble.advertise(
+            connection =  await aioble.advertise (
                 250_000,
                 name="open-kinetic-pwr",
                 services=[self.power_service_uuid, self.device_information_service_uuid],
-                appearance=1156
-            ) as connection:
-                # write power specific information
-                self.location_characteristic.write(struct.pack('<B',0x05)) # left crunk
-                self.feature_characteristic.write(struct.pack('<4B', 0x00, 0x10, 0x00, 0x08)) # non distribution and crank revolution
-                # write device information
-                self.manufacturer_characteristic.write(struct.pack('<12s', b'open-kinetic'))
-                self.software_rev_characteristic.write(struct.pack('<6s', b'v0.1.1'))
-                print("Connection from", connection.device)
-                while connection.is_connected():
-                    await cycling_power.publish_task(connection)
+                appearance=1156)
+            asyncio.create_task(self.server_task(connection))
 
 '''
 
