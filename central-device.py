@@ -8,72 +8,71 @@ import bluetooth
 import binascii
 import ssd1306
 
-# using default address 0x3C
-i2c = I2C(sda=Pin(5), scl=Pin(4))
-display = ssd1306.SSD1306_I2C(128, 64, i2c)
-
-#address = "DC:B4:83:07:90:3E"
-address = None
-
-_POWER_SENSOR_NAME = "KICKR CORE 3250"
-_POWER_SERVICE_UUID = bluetooth.UUID(0x1818)
-_POWER_CHARACTERISTIC_UUID = bluetooth.UUID(0x2a63)
-
-def _power_data_handler(data):
-    c_data = str(binascii.hexlify(data))
-    hr = int(c_data[6:8], 16)
-    display.fill(0)
-    display.text(str(hr), 0, 0, 1)
-    display.show()
-    print(hr)
 
 
-async def find_power_sensor():
-    async with aioble.scan(5000, interval_us=30000, window_us=30000, active=True) as scanner:
-        async for result in scanner:
-            if result.name() == _POWER_SENSOR_NAME and _POWER_SERVICE_UUID in result.services():
-                return result.device
-    return None
+'''
 
-_init = True
-async def main():
-    global _init
-    if address:
-        device = aioble.Device(aioble.ADDR_RANDOM, address)
-    else:
-        device = await find_power_sensor()
-    if not device:
-        print("power sensor not found")
-        return
+BLE_cycling_power_client
 
-    try:
-        if _init:
-            print("Connecting to", device)
-        connection = await device.connect(timeout_ms=5000)
-    except asyncio.TimeoutError:
-        if _init:
-            print("Timeout during connection")
-        return
-    _init = False
+'''
+class BLE_cycling_power_client:
 
-    async with connection:
-        try:
-            hr_service = await connection.service(_POWER_SERVICE_UUID)
-            hr_characteristic = await hr_service.characteristic(_POWER_CHARACTERISTIC_UUID)
-        except asyncio.TimeoutError:
-            print("Timeout discovering services/characteristics")
-            return
+    def __init__(self, callback):
+        self.callback = callback
+        self.sensor_name  = "open-kinetic-pwr"
+        self.power_service_uuid = bluetooth.UUID(0x1818)
+    
+    async def connection_task(self):
 
-        await hr_characteristic.subscribe(notify=True)
-        while True:
-            try:
-                power_data = await hr_characteristic.notified()
-                _power_data_handler(power_data)
+        self.device = await self.find_power_sensor()
+        self.connection = await self.device.connect(timeout_ms=10000)
+        async with self.connection:
+            print("trying to connect")
+            power_service = await self.connection.service(self.power_service_uuid)
+            power_characteristic = await power_service.characteristic(bluetooth.UUID(0x2a63))
+            await power_characteristic.subscribe(notify=True)
+            while True:
+                power_data = await power_characteristic.notified()
+                self.power_data_handler(power_data)
                 await asyncio.sleep_ms(1000)
-            except:
-                print("DeviceDisconnected Exit")
-                return
+ 
+    def power_data_handler(self, data):
+        c_data = str(binascii.hexlify(data))
+        pwr = int(c_data[6:8], 16)
+        print("power data", pwr)
+        self.callback(pwr)
 
+    async def find_power_sensor(self):
+        print("find power meter", self.sensor_name)
+        async with aioble.scan(5000, interval_us=30000, window_us=30000, active=True) as scanner:
+            async for result in scanner:
+                if result.name() == self.sensor_name and self.power_service_uuid in result.services():
+                    return result.device
+        return None
+
+'''
+
+Display
+
+'''
+
+class OLED_output:
+
+    def __init__(self):
+        self.i2c = I2C(sda=Pin(5), scl=Pin(4))
+        self.screen = ssd1306.SSD1306_I2C(128, 64, self.i2c)
+
+    def update(self, data):
+        self.screen.fill(0)
+        self.screen.text(str(data),0,0,1)
+        self.screen.show()
+
+async def main():
+    await asyncio.create_task(cycling_power.connection_task())
+
+
+output = OLED_output()
+cycling_power = BLE_cycling_power_client(output.update)
 
 asyncio.run(main())
 
