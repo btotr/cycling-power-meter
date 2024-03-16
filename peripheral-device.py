@@ -4,7 +4,8 @@ sys.path.append("")
 
 from micropython import const
 from machine import Pin, ADC
-
+from hx711 import HX711
+import esp32
 import asyncio
 import aioble
 import bluetooth
@@ -40,12 +41,13 @@ class BLE_Cycling_Power:
     async def publish_task(self, connection):
         while True:
 
-            power = int(weight.get_weight())*2 #todo
+            power = int(abs(weight.get_weight()))*2 #todo
             battery_level =  struct.pack('<B', int(battery.get_level()))
-            print(connection)
 
-            print(battery.get_level())
-            print(cadance.get_lastRevTime())
+            #print(battery.get_level())
+            print("last rev: {:0.2f}".format(cadance.get_lastRevTime()))
+            print("revolutions: {}".format(cadance.get_revolutions()))
+            print("power: {}".format(power))
 
             power_data =  struct.pack('<8B',
                 0x20, 
@@ -92,9 +94,9 @@ class Battery:
 
     def __init__(self):
         self.level = 60
-        self.adc = ADC(Pin(32))
+        self.adc = ADC(Pin(5)) 
         self.adc.atten(ADC.ATTN_11DB)  # set 11dB input attenuation (voltage range roughly 0.0v - 3.6v)
-        self.adc.width(ADC.WIDTH_9BIT)  # set 9 bit return values (returned range 0-511)
+       # self.adc.width(ADC.WIDTH_9BIT)  # set 9 bit return values (returned range 0-511)
 
     def get_level(self):
         return self.level
@@ -113,14 +115,25 @@ weight
 class Weight:
 
     def __init__(self):
-        self.weight = 100
+        dpclk=Pin(3) 
+        dout=Pin(4) 
+        self.taste=Pin(0,Pin.IN,Pin.PULL_UP)
+        self.weight = 0
+        self.hx = HX711(dout,dpclk)
+        self.hx.wakeUp()
+        self.hx.kanal(1)
+        self.hx.tara(25)
+        self.hx.calFaktor(225)
 
     def get_weight(self):
         return self.weight
 
     async def load_sensor_task(self):
         while True:
-            self.weight += random.uniform(-5, 5)
+            if self.taste.value() == 0:
+                self.hx.tara(25)
+            self.weight=self.hx.masse(10)
+            #print(self.hx.masse(10))
             await asyncio.sleep_ms(500)
 
 '''
@@ -135,6 +148,7 @@ class Cadance:
         self.revolutions = 0
         self.lastRevTime = 0
         self.rpm = 30
+        self.hall_sensor = Pin(7,Pin.IN)
 
     def get_revolutions(self):
         return self.revolutions
@@ -143,11 +157,17 @@ class Cadance:
         return self.lastRevTime
 
     async def hall_sensor_task(self):
+        found = False
         while True:
+            if(self.hall_sensor.value() == 1):
+                found = False
+            elif(not found):
+                found = True
+                self.revolutions += 1
+                #print("found magnet")
+                self.lastRevTime = int(self.lastRevTime + 1024*60/self.rpm)
             self.rpm += random.uniform(-1, 1) #1024*60*self.revolutions / diffTime
-            self.revolutions += 1
-            self.lastRevTime = int(self.lastRevTime + 1024*60/self.rpm)
-            await asyncio.sleep_ms(800)
+            await asyncio.sleep_ms(200)
 
 # Run tasks.
 async def main():
