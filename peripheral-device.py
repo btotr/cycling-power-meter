@@ -38,13 +38,23 @@ class BLE_Cycling_Power:
         # register services
         aioble.register_services(self.power_service, self.device_information_service, self.battery_service)
 
-    async def publish_task(self, connection):
+    def publish_task(self, connection):
         while True:
+            '''
+            TODO power calculation is based on the revolutions.
+            Need to use something like a MPU-6050 accelerometer
+            '''
+            revolutions = cadance.get_revolutions()-cadance.get_lastRevolutions()
+            if revolutions == 0:
+                await asyncio.sleep_ms(400)
+                return True # no bluetooth update
 
-            power = int(abs(weight.get_weight()))*2 #todo
+            meter_per_revolution = 1.09956
+            power = int(abs(weight.get_weight()*2)*abs(revolutions*meter_per_revolution))
+            
             battery_level =  struct.pack('<B', int(battery.get_level()))
 
-            #print(battery.get_level())
+            print("force: {:0.2f}".format(weight.get_weight()))
             print("last rev: {:0.2f}".format(cadance.get_lastRevTime()))
             print("revolutions: {}".format(cadance.get_revolutions()))
             print("power: {}".format(power))
@@ -62,6 +72,9 @@ class BLE_Cycling_Power:
             self.battery_level_characteristic.write(battery_level)
             self.measurement_characteristic.notify(connection, power_data)
             self.measurement_characteristic.write(power_data)
+            #reset weight and cadance
+            weight.set_weight(0)
+            cadance.set_lastRevolutions(cadance.get_revolutions())
             await asyncio.sleep_ms(1000)
 
     async def server_task(self, connection):
@@ -114,25 +127,25 @@ weight
 
 class Weight:
 
-    def __init__(self):
-        dpclk=Pin(3) 
-        dout=Pin(4) 
-        self.taste=Pin(0,Pin.IN,Pin.PULL_UP)
+    def __init__(self, dout=Pin(2), dpclk=Pin(3)):
+        self.taste=Pin(1,Pin.IN,Pin.PULL_UP)
         self.weight = 0
-        self.hx = HX711(dout,dpclk)
+        self.hx = HX711(dout,dpclk,1)
         self.hx.wakeUp()
-        self.hx.kanal(1)
         self.hx.tara(25)
-        self.hx.calFaktor(225)
+        self.hx.calFaktor(35)
 
     def get_weight(self):
         return self.weight
+
+    def set_weight(self, weight):
+        self.weight = weight
 
     async def load_sensor_task(self):
         while True:
             if self.taste.value() == 0:
                 self.hx.tara(25)
-            self.weight=self.hx.masse(10)
+            self.weight+=self.hx.masse(10)
             #print(self.hx.masse(10))
             await asyncio.sleep_ms(500)
 
@@ -147,11 +160,17 @@ class Cadance:
     def __init__(self):
         self.revolutions = 0
         self.lastRevTime = 0
-        self.rpm = 30
+        self.lastRevolutions = 0
         self.hall_sensor = Pin(7,Pin.IN)
 
     def get_revolutions(self):
         return self.revolutions
+    
+    def set_lastRevolutions(self, revolutions):
+        self.lastRevolutions = revolutions
+    
+    def get_lastRevolutions(self):
+        return self.lastRevolutions
 
     def get_lastRevTime(self):
         return self.lastRevTime
@@ -164,10 +183,10 @@ class Cadance:
             elif(not found):
                 found = True
                 self.revolutions += 1
-                #print("found magnet")
-                self.lastRevTime = int(self.lastRevTime + 1024*60/self.rpm)
-            self.rpm += random.uniform(-1, 1) #1024*60*self.revolutions / diffTime
-            await asyncio.sleep_ms(200)
+                print("found magnet")
+                self.lastRevTime = 0
+            #TODO lastRevTime 1024*60*self.revolutions / diffTime
+            await asyncio.sleep_ms(80)
 
 # Run tasks.
 async def main():

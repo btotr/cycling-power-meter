@@ -24,7 +24,7 @@ class HX711(DeviceNotReady):
         2:("B",32),
         3:("A",64),
         }
-    KalibrierFaktor=1104
+    KalibrierFaktor=0
     
     def __init__(self, dOut, pdSck, ch=KselA128):
         self.data=dOut
