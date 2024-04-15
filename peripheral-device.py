@@ -39,22 +39,29 @@ class BLE_Cycling_Power:
         aioble.register_services(self.power_service, self.device_information_service, self.battery_service)
 
     def publish_task(self, connection):
+        power = 0
+        last_time = 0
+        diff_time = 0
         while True:
             '''
-            TODO power calculation is based on the revolutions.
+            TODO power calculation and update and frequency is based on the revolutions.
             Need to use something like a MPU-6050 accelerometer
             '''
             revolutions = cadance.get_revolutions()-cadance.get_lastRevolutions()
-            if revolutions == 0:
-                await asyncio.sleep_ms(400)
-                return True # no bluetooth update
+            if revolutions != 0:
+                meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
+                now = time.time_ns()
+                diff_time = (now - last_time)/1000000000
+                power = int(abs(weight.get_weight()*2)*abs(revolutions*meter_per_revolution)/diff_time)
+                #reset weight, time and cadance
+                weight.set_weight(0)
+                cadance.set_lastRevolutions(cadance.get_revolutions())
+                last_time = now
 
-            meter_per_revolution = 1.09956
-            power = int(abs(weight.get_weight()*2)*abs(revolutions*meter_per_revolution))
-            
             battery_level =  struct.pack('<B', int(battery.get_level()))
 
             print("force: {:0.2f}".format(weight.get_weight()))
+            print("time: {:0.2f}".format(diff_time))
             print("last rev: {:0.2f}".format(cadance.get_lastRevTime()))
             print("revolutions: {}".format(cadance.get_revolutions()))
             print("power: {}".format(power))
@@ -72,9 +79,6 @@ class BLE_Cycling_Power:
             self.battery_level_characteristic.write(battery_level)
             self.measurement_characteristic.notify(connection, power_data)
             self.measurement_characteristic.write(power_data)
-            #reset weight and cadance
-            weight.set_weight(0)
-            cadance.set_lastRevolutions(cadance.get_revolutions())
             await asyncio.sleep_ms(1000)
 
     async def server_task(self, connection):
@@ -105,18 +109,18 @@ battery
 
 class Battery:
 
-    def __init__(self):
+    def __init__(self, pin_adc=5):
         self.level = 60
-        self.adc = ADC(Pin(5)) 
-        self.adc.atten(ADC.ATTN_11DB)  # set 11dB input attenuation (voltage range roughly 0.0v - 3.6v)
-       # self.adc.width(ADC.WIDTH_9BIT)  # set 9 bit return values (returned range 0-511)
+        self.adc = ADC(Pin(pin_adc)) 
+        self.adc.atten(ADC.ATTN_11DB)
+        # self.adc.width(ADC.WIDTH_9BIT)  
 
     def get_level(self):
         return self.level
 
     async def level_task(self):
         while True:
-            self.level = self.adc.read()/511*100 #random.uniform(-0.5, 0.5)
+            self.level = self.adc.read()/511*100
             await asyncio.sleep(120)
 
 '''
@@ -127,10 +131,10 @@ weight
 
 class Weight:
 
-    def __init__(self, dout=Pin(2), dpclk=Pin(3)):
+    def __init__(self, pin_out=2, pin_clk=3):
         self.taste=Pin(1,Pin.IN,Pin.PULL_UP)
         self.weight = 0
-        self.hx = HX711(dout,dpclk,1)
+        self.hx = HX711(Pin(pin_out),Pin(pin_clk),1)
         self.hx.wakeUp()
         self.hx.tara(25)
         self.hx.calFaktor(35)
@@ -145,9 +149,8 @@ class Weight:
         while True:
             if self.taste.value() == 0:
                 self.hx.tara(25)
-            self.weight+=self.hx.masse(10)
-            #print(self.hx.masse(10))
-            await asyncio.sleep_ms(500)
+            self.weight += self.hx.masse(10)
+            await asyncio.sleep_ms(100)
 
 '''
 
@@ -157,11 +160,11 @@ cadance
 
 class Cadance:
 
-    def __init__(self):
+    def __init__(self, pin_hall=7):
         self.revolutions = 0
         self.lastRevTime = 0
         self.lastRevolutions = 0
-        self.hall_sensor = Pin(7,Pin.IN)
+        self.hall_sensor = Pin(pin_hall,Pin.IN)
 
     def get_revolutions(self):
         return self.revolutions
@@ -186,7 +189,7 @@ class Cadance:
                 print("found magnet")
                 self.lastRevTime = 0
             #TODO lastRevTime 1024*60*self.revolutions / diffTime
-            await asyncio.sleep_ms(80)
+            await asyncio.sleep_ms(10)
 
 # Run tasks.
 async def main():
@@ -201,3 +204,5 @@ weight = Weight()
 battery = Battery()
 cycling_power = BLE_Cycling_Power()
 asyncio.run(main())
+
+
