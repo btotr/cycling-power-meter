@@ -1,14 +1,16 @@
 # Kinetic-pwr an open cycling power meter
 
-This project aims to provide a simple open cycling power meter to extend, learn and being independently creative. It uses an easy-to-learn programming language ([micropython](https://micropython.org/)) and runs on widely available and inexpensive hardware like HX711 and ESP32 to be accessible to a broad audience. For compatibility reasons it uses an open specification, the Bluetooth cycling power profile. Al code is open and licences under a [free software license](https://raw.githubusercontent.com/btotr/cycling-power-meter/main/LICENSE)
+This project aims to provide a simple open cycling power meter to extend and learn. It uses an easy-to-learn programming language ([micropython](https://micropython.org/)) and runs on widely available and inexpensive hardware like HX711 and ESP32 to be accessible to a broad audience. For compatibility reasons it uses an open specification, the Bluetooth cycling power profile. Al code is open and licences under a [free software license](https://raw.githubusercontent.com/btotr/cycling-power-meter/main/LICENSE)
 
 ## instructions
-coming soon
+coming ~~soon~~. see [wiki notes]( https://github.com/btotr/cycling-power-meter/wiki/Notes) for some hints
 
-## notes
-Currently tested with [Rouvy](https://rouvy.com/), [Garmin forerunner 935](https://www.garmin.com/en-US/p/564291) and [Wahoo elements bold v2](https://eu.wahoofitness.com/devices/bike-computers/elemnt-bolt-buy). Garmin and Rouvy are running fine however Wahoo isn't finding the device. 
+## status
+Tested with [Rouvy](https://rouvy.com/), [Garmin forerunner 935](https://www.garmin.com/en-US/p/564291) and [Wahoo elements bold v2](https://eu.wahoofitness.com/devices/bike-computers/elemnt-bolt-buy). Garmin and Rouvy are running fine however Wahoo isn't finding the device. 
 
-Addition [files for calibration could be find here](https://github.com/btotr/force-calibration) and a [case](https://github.com/btotr/kinetic-pw-case) is in development. A bare minimal micropython [client implementation](https://gist.github.com/btotr/462ab281c35927629a8f70ec4f23cb6f) is available as gist
+Addition [files for calibration could be find here](https://github.com/btotr/force-calibration) and a [case](https://github.com/btotr/kinetic-pw-case) is in development. A bare minimal micropython [client implementation](https://gist.github.com/btotr/462ab281c35927629a8f70ec4f23cb6f) is available as gist.
+
+The system is very bugy and is currently not for function usages however it may be a good starting point for further development
 
 
 
