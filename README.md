@@ -10,7 +10,7 @@ Tested with [Rouvy](https://rouvy.com/), [Garmin forerunner 935](https://www.gar
 
 Addition [files for calibration could be find here](https://github.com/btotr/force-calibration) and a [case](https://github.com/btotr/kinetic-pw-case) is in development. A bare minimal micropython [client implementation](https://gist.github.com/btotr/462ab281c35927629a8f70ec4f23cb6f) is available as gist.
 
-The system is very bugy and is currently not for function usages however it may be a good starting point for further development
+The system is very bugy and is currently not for functional usages however it may be a good starting point for further development
 
 
 
