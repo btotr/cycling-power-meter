@@ -51,7 +51,7 @@ class BLE_Cycling_Power:
             if revolutions != 0:
                 meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
                 now = time.time_ns()
-                diff_time = (now - last_time)/1000000000
+                diff_time = (now - last_time)/1e9
                 power = int(abs(weight.get_weight()*2)*abs(revolutions*meter_per_revolution)/diff_time)
                 #reset weight, time and cadance
                 weight.set_weight(0)
@@ -187,8 +187,9 @@ class Cadance:
                 found = True
                 self.revolutions += 1
                 print("found magnet")
-                self.lastRevTime = 0
-            #TODO lastRevTime 1024*60*self.revolutions / diffTime
+                now = time.time_ns()
+                now_1024 = floor(now*1e3/1024)
+                self.lastRevTime = now_1024 % 65536
             await asyncio.sleep_ms(10)
 
 # Run tasks.
