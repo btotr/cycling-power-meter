@@ -64,13 +64,12 @@ class BLE_Cycling_Power:
             last_time = now
 
             # debugging 
-            rpm = 60*revolutions/diff_time
-            #print("force: {:0.2f}".format(weight.get_weight()))
-            #print("time: {:0.2f}".format(diff_time))
-            print("last rev: {:0.2f}".format(cadance.get_lastRevTime()))
+            rpm = 60 * revolutions / diff_time
+            print("force: {:0.2f}".format(weight.get_weight()))
+            # print("last rev: {}".format(cadance.get_lastRevTime()))
             #print("power: {}".format(power))
-            print("revolutions: {}".format(cadance.get_revolutions()))
-            print("rpm: {}".format(rpm))
+            # print("revolutions: {}".format(cadance.get_revolutions()))
+            # print("rpm: {}".format(rpm))
 
             # bluetooth packets
             battery_level =  struct.pack('<B', int(battery.get_level()))
@@ -125,7 +124,7 @@ class Battery:
         # self.adc.width(ADC.WIDTH_9BIT)  
 
     def get_level(self):
-        return self.level
+        return 80 #TODO self.level
 
     async def level_task(self):
         while True:
@@ -175,7 +174,7 @@ class Cadance:
         self.lastRevolutions = 0
         self.hall_sensor = Pin(pin_hall,Pin.IN)
         self.hall_sensor.irq(trigger=Pin.IRQ_FALLING, handler=self.hall_sensor_task)
-        self.last_time = time.time_ns()
+        self.last_time = time.time()
 
     def get_revolutions(self):
         return self.revolutions
@@ -191,14 +190,11 @@ class Cadance:
 
     def hall_sensor_task(self, pin):
         self.revolutions += 1
-        now = time.time_ns()
-        #diff_time = (now - self.last_time)
-        #diff_1024 = int(diff_time*(1000/1024)/1e6)
-        # TODO now blijft constant!
-        self.lastRevTime =  int((now-1)/1e6 % 65536) # 64000 sec / 1000 * 1024  
-        #self.last_time = now
+        now = time.ticks_ms()
+        now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
+        self.lastRevTime =  now_1024
 
-# Run tasks.
+# Run tasks
 async def main():
     t1 = asyncio.create_task(battery.level_task())
     t2 = asyncio.create_task(cycling_power.connection_task())
