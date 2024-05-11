@@ -49,25 +49,26 @@ class BLE_Cycling_Power:
             Need to use something like a MPU-6050 accelerometer
             '''
             revolutions = cadance.get_revolutions()-cadance.get_lastRevolutions()
-            #if revolutions == 0:
-            #    return
+            if revolutions == 0:
+                return
 
             # power calculation
             mp = 2 # rouvy=2 garmin=1 TODO sniff brand
+            newton_ratio = 0.00980665 # 1 gram
             meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
             now = time.time_ns()
             diff_time = (now - last_time)/1e9
-            power = int(abs(weight.get_weight()*mp/1000)*abs(revolutions*meter_per_revolution)/diff_time)
+            power = int(abs(weight.get_weight()*newton_ratio*mp)*(revolutions*meter_per_revolution)/diff_time)
             
 
             # debugging 
             rpm = 60 * revolutions / diff_time
-            print("force: {:0.2f}".format(weight.get_weight()))
-            # print("last rev: {}".format(cadance.get_lastRevTime()))
-            print("power: {}".format(power))
+            #print("force: {:0.2f}".format(weight.get_weight()))
+            #print("last rev: {}".format(cadance.get_lastRevTime()))
+            print("{}".format(power))
             # print("revolutions: {}".format(cadance.get_revolutions()))
             # print("rpm: {}".format(rpm))
-            # print("time: {}".format(diff_time))
+            #print("time: {}".format(diff_time))
 
             # bluetooth packets
             battery_level =  struct.pack('<B', int(battery.get_level()))
