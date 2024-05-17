@@ -42,14 +42,14 @@ class BLE_Cycling_Power:
         self.connections = []
         self.last_published_time = 0
 
-    def publish_task(self, revolutions, lastRevTime, force, battery_level):
+    def publish_task(self, revolutions, lastRevTime, force, battery_level, callback):
         # power calculation
-        mp = 2 # rouvy=2 garmin=1 TODO sniff brand
+        mp = 1 # rouvy=2 garmin=1 TODO sniff brand
         newton_ratio = 0.00980665 # 1 gram
         meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
         now = time.time_ns()
         diff_time = (now - self.last_published_time)/1e9
-        power = int(abs(force*newton_ratio*mp)*(meter_per_revolution/diff_time))
+        power = int(force*newton_ratio*mp*(meter_per_revolution/diff_time))
         
 
         # debugging 
@@ -57,9 +57,9 @@ class BLE_Cycling_Power:
         print("force: {:0.2f}".format(force))
         #print("last rev: {}".format(cadance.get_lastRevTime()))
         print("power: {}".format(power))
-        #print("revolutions: {}".format(cadance.get_revolutions()))
+        print("revolutions: {}".format(cadance.get_revolutions()))
         #print("rpm: {}".format(rpm))
-        #print("time: {}".format(diff_time))
+        print("time: {}".format(diff_time))
 
         # bluetooth packets
         battery_level_data =  struct.pack('<B', int(battery_level))
@@ -70,8 +70,8 @@ class BLE_Cycling_Power:
             power >> 8, 
             revolutions & 0xff, 
             revolutions >> 8,
-            lastRevTime & 0xff, 
-            lastRevTime >> 8)
+            self.last_published_time & 0xff, 
+            self.last_published_time >> 8)
         # publish packets
         for c in self.connections:
             self.battery_level_characteristic.notify(c, battery_level_data)
@@ -81,6 +81,7 @@ class BLE_Cycling_Power:
         
         # save time 
         self.last_published_time = now
+        callback()
         
 
     async def server_task(self, connection):
@@ -141,19 +142,25 @@ class Weight:
         self.hx = HX711(Pin(pin_out),Pin(pin_clk),1)
         self.hx.wakeUp()
         self.hx.tara(25)
+        self.samples = 0
         self.hx.calFaktor(cf)
 
     def get_weight(self):
         return self.weight
 
-    def set_weight(self, weight):
-        self.weight = weight
+    def get_samples(self):
+        return self.samples
+
+    def reset(self):
+        self.weight = 0
+        self.samples = 0
+
 
     async def load_sensor_task(self):
         while True:
-            if self.taste.value() == 0:
-                self.hx.tara(25)
             self.weight += self.hx.masse(10)
+            self.samples += 1
+            print(abs(self.weight)/self.samples)
             await asyncio.sleep_ms(100)
 
 '''
@@ -198,15 +205,15 @@ async def tasks():
 # main 
 cycling_power = BLE_Cycling_Power()
 cadance = Cadance(7)
-weight = Weight(2, 3, 225)
+weight = Weight(2, 3, 30)
 battery = Battery(5)
 
 def handle_revolution_update():
     cycling_power.publish_task(cadance.get_revolutions(),
                                cadance.get_lastRevTime(), 
-                               weight.get_weight(), 
-                               battery.get_level())
-    weight.set_weight(0)
+                               abs(weight.get_weight())/weight.get_samples(), 
+                               battery.get_level(),
+                               weight.reset)
 
 cadance.set_callback(handle_revolution_update)
 asyncio.run(tasks())
