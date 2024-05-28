@@ -44,23 +44,23 @@ class BLE_Cycling_Power:
 
     def publish_task(self, revolutions, lastRevTime, force, battery_level, callback):
         # power calculation
-        mp = 1 # rouvy=2 garmin=1 TODO sniff brand
-        newton_ratio = 0.00980665 # 1 gram
+        mp = 2 # rouvy=2 garmin=1 TODO sniff brand
+        newton_ratio = 0.00980665 #= 1 gram
         meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
         now = time.time_ns()
         diff_time = (now - self.last_published_time)/1e9
-        power = int(force*newton_ratio*mp*(meter_per_revolution/diff_time))
+        power = int((force*newton_ratio)*mp*(meter_per_revolution/diff_time))
       
         
 
         # debugging 
         rpm = 60 / diff_time
-        print("force: {:0.2f}".format(force))
+        #print("force: {:0.2f}".format(force))
         #print("last rev: {}".format(lastRevTime))
-        print("power: {}".format(power))
+        #print("power: {}".format(power))
         #print("revolutions: {}".format(revolutions))
-        print("rpm: {}".format(rpm))
-        print("time: {}".format(diff_time))
+        #print("rpm: {}".format(rpm))
+        #print("time: {}".format(diff_time))
 
         # bluetooth packets
         battery_level_data =  struct.pack('<B', int(battery_level))
@@ -161,11 +161,12 @@ class Weight:
 
     async def load_sensor_task(self):
         while True:
-            self.weight += self.hx.masse(1)
             self.samples += 1
-            #print(self.weight)
-            #print(abs(self.weight)/self.samples)
-            await asyncio.sleep_ms(100)
+            g = self.hx.masse(1)
+            self.weight += abs(g)
+            # print(g)
+            # print(abs(self.weight)/self.samples)
+            await asyncio.sleep_ms(50)
 
 '''
 
@@ -205,9 +206,8 @@ class Fake_cadance:
     def __init__(self, weight):
         self.e = 0
         self.weight = weight;
-        self.run()
     
-    def run(self):
+    async def task(self):
         print("run fake cadance")
         while True:
             self.e += 1
@@ -217,7 +217,7 @@ class Fake_cadance:
                                    abs(self.weight.get_weight())/(self.weight.get_samples()+1), 
                                    10,
                                    self.weight.reset)
-            time.sleep_ms(1000) # i.e. 60 rpm
+            await asyncio.sleep_ms(1000) # i.e. 60 rpm
 
 
 # Run tasks
@@ -225,27 +225,22 @@ async def tasks():
     t1 = asyncio.create_task(battery.level_task())
     t2 = asyncio.create_task(cycling_power.connection_task())
     t4 = asyncio.create_task(weight.load_sensor_task())
+    #t5 = asyncio.create_task(cadance.task()) # for testing
     await asyncio.gather(t1, t2, t4)
 
 # main 
 cycling_power = BLE_Cycling_Power()
-weight = Weight(2, 3, 30)
-#cadance = Cadance(7)
-cadance = Fake_cadance(weight)
-
-
+weight = Weight(2, 3, 57.5)
 battery = Battery(5)
+cadance = Cadance(7)
+# cadance = Fake_cadance(weight)
 
-
-
-def handle_revolution_update_b():
+def handle_revolution_update():
     cycling_power.publish_task(cadance.get_revolutions(),
                                cadance.get_lastRevTime(), 
                                abs(weight.get_weight())/weight.get_samples(), 
                                battery.get_level(),
                                weight.reset)
 
-#cadance.set_callback(handle_revolution_update)
+cadance.set_callback(handle_revolution_update)
 asyncio.run(tasks())
-
-
