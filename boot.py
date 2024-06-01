@@ -3,7 +3,7 @@ import sys
 sys.path.append("")
 
 from micropython import const
-from machine import Pin, ADC
+from machine import Pin, ADC, I2C
 from hx711 import HX711
 import esp32
 import asyncio
@@ -12,6 +12,7 @@ import aioble
 import bluetooth
 import random
 import struct
+import ustruct
 import time
 
 '''
@@ -58,7 +59,7 @@ class BLE_Cycling_Power:
         #print("force: {:0.2f}".format(force))
         #print("last rev: {}".format(lastRevTime))
         #print("power: {}".format(power))
-        #print("revolutions: {}".format(revolutions))
+        print("revolutions: {}".format(revolutions))
         #print("rpm: {}".format(rpm))
         #print("time: {}".format(diff_time))
 
@@ -176,6 +177,49 @@ cadance
 
 class Cadance:
 
+    def __init__(self, pin_sda, pin_scl):
+        self.i2c = I2C(0, sda=Pin(pin_sda), scl=Pin(pin_scl), freq=400000)
+        self.i2c.writeto_mem(0x53, 0x2D, bytearray([0x08]))  # Set bit 3 to 1 to enable measurement mode
+        self.i2c.writeto_mem(0x53,  0x31, bytearray([0x0B]))  # Set data format to full resolution, +/- 16g
+        self.revolutions = 0
+        self.lastRevTime = 0
+        self.lastRevolutions = 0
+        self.c = 0
+        self.callback = None
+
+    def read_accel_data(self):
+        data = self.i2c.readfrom_mem(0x53, 0x32, 6)
+        x, y, z = ustruct.unpack('<3h', data)
+        return x
+
+    def get_revolutions(self):
+        return self.revolutions
+    
+    def set_callback(self, callback):
+        self.callback = callback
+
+    def get_lastRevTime(self):
+        return self.lastRevTime
+
+    async def task(self):
+        while True:
+            x = self.read_accel_data()
+            if x > 50 and self.c == 1:
+                self.c = 2
+            if x > 50 and self.c == 2:
+                self.c = 0
+            if x > -50 and x < 50 and self.c == 0:
+                self.revolutions += 1
+                now = time.ticks_ms()
+                now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
+                self.lastRevTime = now_1024
+                self.callback()
+                self.c = 1
+            await asyncio.sleep_ms(100)
+
+
+class Cadance_hall:
+
     def __init__(self, pin_hall):
         self.revolutions = 0
         self.lastRevTime = 0
@@ -193,15 +237,17 @@ class Cadance:
     def get_lastRevTime(self):
         return self.lastRevTime
 
-    def hall_sensor_task(self, pin):
-        self.revolutions += 1
-        now = time.ticks_ms()
-        now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
-        self.lastRevTime =  now_1024
-        self.callback()
+    def task(self, pin):
+        while True:
+            self.revolutions += 1
+            now = time.ticks_ms()
+            now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
+            self.lastRevTime =  now_1024
+            self.callback()
+            
 
 
-class Fake_cadance:
+class Cadance_fake:
     
     def __init__(self, weight):
         self.e = 0
@@ -225,15 +271,15 @@ async def tasks():
     t1 = asyncio.create_task(battery.level_task())
     t2 = asyncio.create_task(cycling_power.connection_task())
     t4 = asyncio.create_task(weight.load_sensor_task())
-    #t5 = asyncio.create_task(cadance.task()) # for testing
-    await asyncio.gather(t1, t2, t4)
+    t5 = asyncio.create_task(cadance.task()) 
+    await asyncio.gather(t1, t2, t4, t5)
 
 # main 
 cycling_power = BLE_Cycling_Power()
 weight = Weight(2, 3, 57.5)
 battery = Battery(5)
-cadance = Cadance(7)
-# cadance = Fake_cadance(weight)
+cadance = Cadance(6, 7)
+
 
 def handle_revolution_update():
     cycling_power.publish_task(cadance.get_revolutions(),
