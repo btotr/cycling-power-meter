@@ -112,22 +112,25 @@ class BLE_Cycling_Power:
 
 battery
 
+https://forum.seeedstudio.com/t/battery-voltage-monitor-and-ad-conversion-for-xiao-esp32c/267535
+
 '''
 
 class Battery:
-
     def __init__(self, pin_adc):
         self.level = 60
-        self.adc = ADC(Pin(pin_adc)) 
+        self.adc = ADC(Pin(pin_adc))
         self.adc.atten(ADC.ATTN_11DB)
-        # self.adc.width(ADC.WIDTH_9BIT)  
 
     def get_level(self):
         return self.level
 
     async def level_task(self):
         while True:
-            self.level = self.adc.read()/511*100
+            voltage = 0
+            for i in range(16):
+                voltage += self.adc.read_uv() 
+            self.level = int((voltage / 16 / 1000) / 22)
             await asyncio.sleep(120)
 
 '''
@@ -178,9 +181,12 @@ cadance
 class Cadance:
 
     def __init__(self, pin_sda, pin_scl):
-        self.i2c = I2C(0, sda=Pin(pin_sda), scl=Pin(pin_scl), freq=400000)
-        self.i2c.writeto_mem(0x53, 0x2D, bytearray([0x08]))  # Set bit 3 to 1 to enable measurement mode
-        self.i2c.writeto_mem(0x53,  0x31, bytearray([0x0B]))  # Set data format to full resolution, +/- 16g
+        try: 
+            self.i2c = I2C(0, sda=Pin(pin_sda), scl=Pin(pin_scl), freq=400000)
+            self.i2c.writeto_mem(0x53, 0x2D, bytearray([0x08]))  # Set bit 3 to 1 to enable measurement mode
+            self.i2c.writeto_mem(0x53,  0x31, bytearray([0x0B]))  # Set data format to full resolution, +/- 16g
+        except: 
+            print('No cadance found')
         self.revolutions = 0
         self.lastRevTime = 0
         self.lastRevolutions = 0
@@ -188,8 +194,11 @@ class Cadance:
         self.callback = None
 
     def read_accel_data(self):
-        data = self.i2c.readfrom_mem(0x53, 0x32, 6)
-        x, y, z = ustruct.unpack('<3h', data)
+        try:
+            data = self.i2c.readfrom_mem(0x53, 0x32, 6)
+            x, y, z = ustruct.unpack('<3h', data)
+        except: 
+            x = 0   
         return x
 
     def get_revolutions(self):
@@ -276,8 +285,8 @@ async def tasks():
 
 # main 
 cycling_power = BLE_Cycling_Power()
-weight = Weight(2, 3, 57.5)
-battery = Battery(5)
+weight = Weight(3, 4, 57.5) # 2, 4 s3
+battery = Battery(2)
 cadance = Cadance(6, 7)
 
 
