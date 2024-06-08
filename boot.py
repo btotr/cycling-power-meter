@@ -63,6 +63,7 @@ class BLE_Cycling_Power:
         #print("revolutions: {}".format(revolutions))
         #print("rpm: {}".format(rpm))
         #print("time: {}".format(diff_time))
+        print("battery: {}".format(battery_level))
 
         # bluetooth packets
         battery_level_data =  struct.pack('<B', int(battery_level))
@@ -121,8 +122,8 @@ class Battery:
     def __init__(self, pin_adc, indication_pin, pin_awake):
         self.level = 60
         self.indication = Pin(indication_pin, Pin.OUT)
-        self.adc = ADC(Pin(pin_adc))
-        self.adc.atten(ADC.ATTN_11DB)
+        self.adc = ADC(Pin(pin_adc, mode=Pin.IN), atten=ADC.ATTN_11DB)
+        #self.adc.atten(ADC.ATTN_6DB)
         self.power_down = False
         esp32.wake_on_ext0(Pin(pin_awake, Pin.IN), esp32.WAKEUP_ANY_HIGH)
 
@@ -133,12 +134,14 @@ class Battery:
         self.power_down = True
 
     async def level_task(self):
+        clamp = lambda n, minn, maxn: max(min(maxn, n), minn)
         while True:
             voltage = 0
             for i in range(16):
-                voltage += self.adc.read_uv() 
-            self.level = int((voltage / 16 / 1000) / 220)
-            await asyncio.sleep(120)
+                voltage += self.adc.read_uv()
+            #TODO clean
+            self.level = clamp(int((2 * voltage / 16 / 1000 * (3.3 / 4095)) / 3.3 * 100), 1, 99)
+            await asyncio.sleep(1)
     
     async def management(self):
         while True:
@@ -259,6 +262,7 @@ class Controller:
         self.cadance = Cadance(6, 7)
         self.no_connection_counter = 0
 
+
     async def check_activity(self):
         while True:
             print("TODO check time activity:")
@@ -269,7 +273,7 @@ class Controller:
                 self.battery.set_power_down()
             if lpt == 0 :
                 # need to go to sleep if the is no connection
-                self.no_connection_counter += 1 
+                self.no_connection_counter += 1
             await asyncio.sleep(180)
          
     async def tasks(self):
@@ -290,7 +294,9 @@ def handle_revolution_update():
                                controller.battery.get_level(),
                                controller.weight.reset)
 controller.cadance.set_callback(handle_revolution_update)
+
 asyncio.run(controller.tasks())
+
 
 
 
