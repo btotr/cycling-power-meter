@@ -5,6 +5,7 @@ sys.path.append("")
 from micropython import const
 from machine import Pin, ADC, I2C, deepsleep
 from hx711 import HX711
+import machine
 import esp32
 import asyncio
 import math
@@ -60,10 +61,10 @@ class BLE_Cycling_Power:
         #print("force: {:0.2f}".format(force))
         #print("last rev: {}".format(lastRevTime))
         #print("power: {}".format(power))
-        #print("revolutions: {}".format(revolutions))
+        print("revolutions: {}".format(revolutions))
         #print("rpm: {}".format(rpm))
         #print("time: {}".format(diff_time))
-        print("battery: {}".format(battery_level))
+        #print("battery: {}".format(battery_level))
 
         # bluetooth packets
         battery_level_data =  struct.pack('<B', int(battery_level))
@@ -114,18 +115,16 @@ class BLE_Cycling_Power:
 
 battery
 
-https://forum.seeedstudio.com/t/battery-voltage-monitor-and-ad-conversion-for-xiao-esp32c/267535
-
 '''
 
 class Battery:
-    def __init__(self, pin_adc, indication_pin, pin_awake):
+    def __init__(self, pin_adc, indication_pin):
         self.level = 60
-        self.indication = Pin(indication_pin, Pin.OUT)
+        self.indication = indication_pin
         self.adc = ADC(Pin(pin_adc, mode=Pin.IN), atten=ADC.ATTN_11DB)
         #self.adc.atten(ADC.ATTN_6DB)
         self.power_down = False
-        esp32.wake_on_ext0(Pin(pin_awake, Pin.IN), esp32.WAKEUP_ANY_HIGH)
+  
 
     def get_level(self):
         return self.level
@@ -147,10 +146,11 @@ class Battery:
         while True:
             #  power on indication
             self.indication.value(1)
-            time.sleep(1)
+            time.sleep(0.5*------)
             self.indication.value(0)
             if (self.power_down) :
                 print("zzzzz.....")
+                self.indication.value(1)
                 time.sleep(5)
                 deepsleep()
             await asyncio.sleep(10)
@@ -174,9 +174,13 @@ class Weight:
 
        
     def get_weight(self):
+        if (not self.weight):
+            self.weight = 1
         return self.weight
 
     def get_samples(self):
+        if (not self.samples):
+            self.samples = 1
         return self.samples
 
     def reset(self):
@@ -201,26 +205,12 @@ cadance
 
 class Cadance:
 
-    def __init__(self, pin_sda, pin_scl):
-        try: 
-            self.i2c = I2C(0, sda=Pin(pin_sda), scl=Pin(pin_scl), freq=400000)
-            self.i2c.writeto_mem(0x53, 0x2D, bytearray([0x08]))  # Set bit 3 to 1 to enable measurement mode
-            self.i2c.writeto_mem(0x53,  0x31, bytearray([0x0B]))  # Set data format to full resolution, +/- 16g
-        except: 
-            print('No cadance sensor found')
+    def __init__(self, pin_hall):
         self.revolutions = 0
         self.lastRevTime = 0
         self.lastRevolutions = 0
-        self.c = 0
+        pin_hall.irq(trigger=Pin.IRQ_FALLING, handler=self.hall_sensor_task)
         self.callback = None
-
-    def read_accel_data(self):
-        try:
-            data = self.i2c.readfrom_mem(0x53, 0x32, 6)
-            x, y, z = ustruct.unpack('<3h', data)
-        except: 
-            x = 0   
-        return x
 
     def get_revolutions(self):
         return self.revolutions
@@ -231,21 +221,12 @@ class Cadance:
     def get_lastRevTime(self):
         return self.lastRevTime
 
-    async def task(self):
-        while True:
-            x = self.read_accel_data()
-            if x > 50 and self.c == 1:
-                self.c = 2
-            if x > 50 and self.c == 2:
-                self.c = 0
-            if x > -50 and x < 50 and self.c == 0:
-                self.revolutions += 1
-                now = time.ticks_ms()
-                now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
-                self.lastRevTime = now_1024
-                self.callback()
-                self.c = 1
-            await asyncio.sleep_ms(100)
+    def hall_sensor_task(self, pin):
+        self.revolutions += 1
+        now = time.ticks_ms()
+        now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
+        self.lastRevTime =  now_1024
+        self.callback()
 
 '''
 
@@ -256,25 +237,40 @@ Controller
 class Controller:
     
     def __init__(self):
+        hall_sensor_pin = Pin(2, Pin.IN) #TODO doesn't wake up on hall
+        pin_awake = Pin(4, Pin.IN)
+        esp32.wake_on_ext1((pin_awake, hall_sensor_pin), esp32.WAKEUP_ANY_HIGH)
+        indication_pin = Pin(10, Pin.OUT)
+        
+         # initializing indication
+        for i in range(6):
+            indication_pin.value(1)
+            time.sleep(0.3)
+            indication_pin.value(0)
+            time.sleep(0.3)
+        
         self.cycling_power = BLE_Cycling_Power()
-        self.weight = Weight(5, 3, 57.5) # 2, 4 s3
-        self.battery = Battery(2, 10, 4)
-        self.cadance = Cadance(6, 7)
+        self.weight = Weight(9, 8, 57.5) # 2, 4 s3
+        self.battery = Battery(3, indication_pin)
+        self.cadance = Cadance(hall_sensor_pin)
         self.no_connection_counter = 0
+        
+
+        
 
 
     async def check_activity(self):
+        inactivity_time = 50000
         while True:
-            print("TODO check time activity:")
-            print(time.time_ns() - self.cycling_power.last_published_time)
+            print(self.no_connection_counter)
             # TODO check
             lpt = self.cycling_power.last_published_time
-            if ((time.time_ns() - lpt) > 50000 and not lpt == 0) or self.no_connection_counter == 3:
+            if ((time.time_ns() - lpt) > inactivity_time and not lpt == 0) or self.no_connection_counter == 2:
                 self.battery.set_power_down()
             if lpt == 0 :
-                # need to go to sleep if the is no connection
+                # need to go to sleep if there is no connection
                 self.no_connection_counter += 1
-            await asyncio.sleep(180)
+            await asyncio.sleep(1)
          
     async def tasks(self):
         t0 = asyncio.create_task(self.battery.level_task())
@@ -282,8 +278,7 @@ class Controller:
         t2 = asyncio.create_task(self.cycling_power.connection_task())
         t3 = asyncio.create_task(self.check_activity())
         t4 = asyncio.create_task(self.weight.load_sensor_task())
-        t5 = asyncio.create_task(self.cadance.task()) 
-        await asyncio.gather(t0, t1, t2, t3, t4, t5)
+        await asyncio.gather(t0, t1, t2, t3, t4)
         
 # main        
 controller = Controller()
