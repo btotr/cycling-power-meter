@@ -16,7 +16,6 @@ import struct
 import ustruct
 import time
 
-
 '''
 
 BLE_Cycling_Power
@@ -47,7 +46,7 @@ class BLE_Cycling_Power:
 
     def publish_task(self, revolutions, lastRevTime, force, battery_level, callback):
         # power calculation
-        mp = 2 # rouvy=2 garmin=1 TODO sniff brand
+        mp = 0.5 # rouvy=2 garmin=1 TODO sniff brand
         newton_ratio = 0.00980665 #= 1 gram
         meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
         now = time.time_ns()
@@ -60,7 +59,7 @@ class BLE_Cycling_Power:
         rpm = 60 / diff_time
         #print("force: {:0.2f}".format(force))
         #print("last rev: {}".format(lastRevTime))
-        #print("power: {}".format(power))
+        print("power: {}".format(power))
         print("revolutions: {}".format(revolutions))
         #print("rpm: {}".format(rpm))
         #print("time: {}".format(diff_time))
@@ -94,8 +93,8 @@ class BLE_Cycling_Power:
         self.location_characteristic.write(struct.pack('<B',0x05)) # left crunk
         self.feature_characteristic.write(struct.pack('<4B', 0x00, 0x10, 0x00, 0x08)) # non distribution and crank revolution
         # write device information
-        self.manufacturer_characteristic.write(struct.pack('<12s', b'open-kinetic'))
-        self.software_rev_characteristic.write(struct.pack('<6s', b'v0.1.1'))
+        self.manufacturer_characteristic.write(struct.pack('<15s', b'open-kinetic-s3'))
+        self.software_rev_characteristic.write(struct.pack('<6s', b'v0.1.2'))
         print("Connection from", connection.device)
         self.connections.append(connection)
         while connection.is_connected():
@@ -106,7 +105,7 @@ class BLE_Cycling_Power:
         while True:
            connection =  await aioble.advertise (
                 250_000,
-                name="open-kinetic-pwr",
+                name="open-kinetic-pwr-s3",
                 services=[self.power_service_uuid, self.device_information_service_uuid],
                 appearance=1156)
            asyncio.create_task(self.server_task(connection))
@@ -121,7 +120,7 @@ class Battery:
     def __init__(self, pin_adc, indication_pin):
         self.level = 60
         self.indication = indication_pin
-        self.adc = ADC(Pin(pin_adc, mode=Pin.IN), atten=ADC.ATTN_11DB)
+        #self.adc = ADC(Pin(pin_adc, mode=Pin.IN), atten=ADC.ATTN_11DB)
         #self.adc.atten(ADC.ATTN_6DB)
         self.power_down = False
   
@@ -133,6 +132,7 @@ class Battery:
         self.power_down = True
 
     async def level_task(self):
+        return #TODO fix
         clamp = lambda n, minn, maxn: max(min(maxn, n), minn)
         while True:
             voltage = 0
@@ -140,20 +140,20 @@ class Battery:
                 voltage += self.adc.read_uv()
             #TODO clean
             self.level = clamp(int((2 * voltage / 16 / 1000 * (3.3 / 4095)) / 3.3 * 100), 1, 99)
-            await asyncio.sleep(1)
+            await asyncio.sleep(180)
     
     async def management(self):
         while True:
             #  power on indication
             self.indication.value(1)
-            time.sleep(0.5*------)
+            time.sleep(0.5)
             self.indication.value(0)
             if (self.power_down) :
                 print("zzzzz.....")
                 self.indication.value(1)
                 time.sleep(5)
                 deepsleep()
-            await asyncio.sleep(10)
+            await asyncio.sleep(180)
 
 '''
 
@@ -164,15 +164,14 @@ weight
 class Weight:
 
     def __init__(self, pin_out, pin_clk, cf=35):
-        self.taste=Pin(1,Pin.IN,Pin.PULL_UP)
+        #self.taste=Pin(20,Pin.IN, Pin.PULL_UP)
         self.weight = 0
-        self.hx = HX711(Pin(pin_out),Pin(pin_clk),1)
+        self.hx = HX711(Pin(pin_out), Pin(pin_clk), 1)
         self.hx.wakeUp()
         self.hx.tara(25)
         self.samples = 0
         self.hx.calFaktor(cf)
 
-       
     def get_weight(self):
         if (not self.weight):
             self.weight = 1
@@ -190,12 +189,14 @@ class Weight:
 
     async def load_sensor_task(self):
         while True:
-            self.samples += 1
             g = self.hx.masse(1)
+            #if (g > 70000):
+            #    return
+            self.samples += 1
             self.weight += abs(g)
-            # print(g)
-            # print(abs(self.weight)/self.samples)
-            await asyncio.sleep_ms(50)
+            #print(g)
+            #print(abs(self.weight)+0.1/self.samples)
+            await asyncio.sleep_ms(200)
 
 '''
 
@@ -209,7 +210,7 @@ class Cadance:
         self.revolutions = 0
         self.lastRevTime = 0
         self.lastRevolutions = 0
-        pin_hall.irq(trigger=Pin.IRQ_FALLING, handler=self.hall_sensor_task)
+        pin_hall.irq(trigger=Pin.IRQ_RISING, handler=self.hall_sensor_task)
         self.callback = None
 
     def get_revolutions(self):
@@ -237,10 +238,9 @@ Controller
 class Controller:
     
     def __init__(self):
-        hall_sensor_pin = Pin(2, Pin.IN) #TODO doesn't wake up on hall
-        pin_awake = Pin(4, Pin.IN)
-        esp32.wake_on_ext1((pin_awake, hall_sensor_pin), esp32.WAKEUP_ANY_HIGH)
-        indication_pin = Pin(10, Pin.OUT)
+        hall_sensor_pin = Pin(1, Pin.IN, Pin.PULL_UP) #TODO doesn't wake up on hall | 1 s3 | 2 c3 
+        #esp32.wake_on_ext0(hall_sensor_pin, esp32.WAKEUP_ANY_HIGH)
+        indication_pin = Pin(9, Pin.OUT)  # 9 s3 | 10 c3
         
          # initializing indication
         for i in range(6):
@@ -250,27 +250,36 @@ class Controller:
             time.sleep(0.3)
         
         self.cycling_power = BLE_Cycling_Power()
-        self.weight = Weight(9, 8, 57.5) # 2, 4 s3
-        self.battery = Battery(3, indication_pin)
+        self.weight = Weight(2, 3, -9) # 2, 3 s3 | 3, 4 c3
+        self.battery = Battery(4, indication_pin)
         self.cadance = Cadance(hall_sensor_pin)
         self.no_connection_counter = 0
-        
-
-        
-
 
     async def check_activity(self):
         inactivity_time = 50000
+        coasting_time = 3
+        usb_mode = True # for model v0.3
         while True:
-            print(self.no_connection_counter)
-            # TODO check
             lpt = self.cycling_power.last_published_time
-            if ((time.time_ns() - lpt) > inactivity_time and not lpt == 0) or self.no_connection_counter == 2:
-                self.battery.set_power_down()
-            if lpt == 0 :
-                # need to go to sleep if there is no connection
-                self.no_connection_counter += 1
-            await asyncio.sleep(1)
+            now = time.time_ns()
+            diff_time = (now - lpt)/1e9
+            # detect coasting
+            if (diff_time > coasting_time and not lpt == 0):
+                print("Coasting")
+                self.cycling_power.publish_task(0,
+                               self.cadance.get_lastRevTime(), 
+                               0, 
+                               controller.battery.get_level(),
+                               controller.weight.reset)
+            if not usb_mode:
+                print(self.no_connection_counter)
+                # TODO check
+                if ((time.time_ns() - lpt) > inactivity_time and not lpt == 0) or self.no_connection_counter == 2:
+                    self.battery.set_power_down()
+                if lpt == 0 :
+                    # need to go to sleep if there is no connection
+                    self.no_connection_counter += 1
+            await asyncio.sleep(3)
          
     async def tasks(self):
         t0 = asyncio.create_task(self.battery.level_task())
