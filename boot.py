@@ -147,7 +147,7 @@ class Battery:
                 self.indication.value(1)
                 time.sleep(5)
                 deepsleep()
-            await asyncio.sleep(180)
+            await asyncio.sleep(10)
 
 '''
 
@@ -263,7 +263,7 @@ class Controller:
     
     def __init__(self):
         self.view = View()
-        hall_sensor_pin = Pin(self.view.hall, Pin.IN, Pin.PULL_UP) #TODO doesn't wake up on hall | 1 s3 | 2 c3 
+        hall_sensor_pin = Pin(self.view.hall, Pin.IN) #TODO doesn't wake up on hall | 1 s3 | 2 c3 
         esp32.wake_on_ext0(hall_sensor_pin, esp32.WAKEUP_ANY_HIGH)
         indication_pin = Pin(self.view.indication, Pin.OUT)  
         
@@ -281,9 +281,9 @@ class Controller:
         self.no_connection_counter = 0
 
     async def check_activity(self):
-        inactivity_time = 50000
+        inactivity_time = 60
         coasting_time = 3
-        usb_mode = True # for model v0.3
+        usb_mode = False # for model v0.3
         while True:
             lpt = self.cycling_power.last_published_time
             now = time.time_ns()
@@ -297,6 +297,8 @@ class Controller:
                                controller.battery.get_level(),
                                controller.weight.reset)
             if not usb_mode:
+                print("test")
+                print(diff_time)
                 print(self.no_connection_counter)
                 # TODO check
                 if ((time.time_ns() - lpt) > inactivity_time and not lpt == 0) or self.no_connection_counter == 2:
