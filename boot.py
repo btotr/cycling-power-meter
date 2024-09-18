@@ -124,7 +124,6 @@ class Battery:
         #self.adc.atten(ADC.ATTN_6DB)
         self.power_down = False
   
-
     def get_level(self):
         return self.level
     
@@ -132,14 +131,9 @@ class Battery:
         self.power_down = True
 
     async def level_task(self):
-        return #TODO fix
-        clamp = lambda n, minn, maxn: max(min(maxn, n), minn)
         while True:
-            voltage = 0
-            for i in range(16):
-                voltage += self.adc.read_uv()
-            #TODO clean
-            self.level = clamp(int((2 * voltage / 16 / 1000 * (3.3 / 4095)) / 3.3 * 100), 1, 99)
+            #TODO fix
+            self.level = 60
             await asyncio.sleep(180)
     
     async def management(self):
@@ -166,10 +160,12 @@ class Weight:
     def __init__(self, pin_out, pin_clk, cf=35):
         #self.taste=Pin(20,Pin.IN, Pin.PULL_UP)
         self.weight = 0
+        self.samples = 0
+        return
         self.hx = HX711(Pin(pin_out), Pin(pin_clk), 1)
         self.hx.wakeUp()
         self.hx.tara(25)
-        self.samples = 0
+        
         self.hx.calFaktor(cf)
 
     def get_weight(self):
@@ -189,6 +185,7 @@ class Weight:
 
     async def load_sensor_task(self):
         while True:
+            return
             g = self.hx.masse(1)
             #if (g > 70000):
             #    return
@@ -211,6 +208,7 @@ class Cadance:
         self.lastRevTime = 0
         self.lastRevolutions = 0
         pin_hall.irq(trigger=Pin.IRQ_RISING, handler=self.hall_sensor_task)
+        print("t")
         self.callback = None
 
     def get_revolutions(self):
@@ -223,11 +221,37 @@ class Cadance:
         return self.lastRevTime
 
     def hall_sensor_task(self, pin):
+        print("hall")
         self.revolutions += 1
         now = time.ticks_ms()
         now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
         self.lastRevTime =  now_1024
         self.callback()
+
+'''
+
+View
+
+'''
+
+class View:
+    
+    def __init__(self):
+        model = "c3"
+        if (model == "c3"):
+            self.hall = 2
+            self.indication = 10
+            self.weight_out = 3
+            self.weight_clock = 4
+            self.weight_cal = -9
+            self.battery = 4
+        if (model == "s3"):
+            self.hall = 1
+            self.indication = 9
+            self.weight_out = 2
+            self.weight_clock = 3
+            self.weight_cal = -9
+            self.battery = 4
 
 '''
 
@@ -238,9 +262,10 @@ Controller
 class Controller:
     
     def __init__(self):
-        hall_sensor_pin = Pin(1, Pin.IN, Pin.PULL_UP) #TODO doesn't wake up on hall | 1 s3 | 2 c3 
-        #esp32.wake_on_ext0(hall_sensor_pin, esp32.WAKEUP_ANY_HIGH)
-        indication_pin = Pin(9, Pin.OUT)  # 9 s3 | 10 c3
+        self.view = View()
+        hall_sensor_pin = Pin(self.view.hall, Pin.IN, Pin.PULL_UP) #TODO doesn't wake up on hall | 1 s3 | 2 c3 
+        esp32.wake_on_ext0(hall_sensor_pin, esp32.WAKEUP_ANY_HIGH)
+        indication_pin = Pin(self.view.indication, Pin.OUT)  
         
          # initializing indication
         for i in range(6):
@@ -250,8 +275,8 @@ class Controller:
             time.sleep(0.3)
         
         self.cycling_power = BLE_Cycling_Power()
-        self.weight = Weight(2, 3, -9) # 2, 3 s3 | 3, 4 c3
-        self.battery = Battery(4, indication_pin)
+        self.weight = Weight(self.view.weight_out, self.view.weight_clock, self.view.weight_cal)
+        self.battery = Battery(self.view.battery, indication_pin)
         self.cadance = Cadance(hall_sensor_pin)
         self.no_connection_counter = 0
 
