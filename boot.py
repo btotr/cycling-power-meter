@@ -277,7 +277,6 @@ class Controller:
     async def check_activity(self):
         inactivity_counter = 0
         coasting_time = 3
-        usb_mode = False # for model v0.3
         while True:
             lpt = self.cycling_power.last_published_time
             diff_time = (time.time_ns() - lpt)/1e9
@@ -293,8 +292,8 @@ class Controller:
                 inactivity_counter = inactivity_counter + 1  
             else:
                inactivity_counter = 0
-                
-            if (not usb_mode and inactivity_counter > 2):
+            # shut down after 100 coasting counts (assume non activity)    
+            if (inactivity_counter > 100):
                     self.battery.set_power_down()
             await asyncio.sleep(3)
          
