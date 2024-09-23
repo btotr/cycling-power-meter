@@ -2,9 +2,10 @@ import sys
 
 sys.path.append("")
 
-from micropython import const
+
 from machine import Pin, ADC, I2C, deepsleep
 from hx711 import HX711
+#import micropython
 import machine
 import esp32
 import asyncio
@@ -59,8 +60,8 @@ class BLE_Cycling_Power:
         rpm = 60 / diff_time
         #print("force: {:0.2f}".format(force))
         #print("last rev: {}".format(lastRevTime))
-        print("power: {}".format(power))
-        print("revolutions: {}".format(revolutions))
+        #print("power: {}".format(power))
+        #print("revolutions: {}".format(revolutions))
         #print("rpm: {}".format(rpm))
         #print("time: {}".format(diff_time))
         #print("battery: {}".format(battery_level))
@@ -82,7 +83,6 @@ class BLE_Cycling_Power:
             self.battery_level_characteristic.write(battery_level_data)
             self.measurement_characteristic.notify(c, power_data)
             self.measurement_characteristic.write(power_data)
-        
         # save time 
         self.last_published_time = now
         callback()
@@ -103,12 +103,12 @@ class BLE_Cycling_Power:
 
     async def connection_task(self):
         while True:
-           connection =  await aioble.advertise (
+            connection =  await aioble.advertise (
                 250_000,
                 name="open-kinetic-pwr-s3",
                 services=[self.power_service_uuid, self.device_information_service_uuid],
                 appearance=1156)
-           asyncio.create_task(self.server_task(connection))
+            asyncio.create_task(self.server_task(connection))
 
 '''
 
@@ -132,7 +132,7 @@ class Battery:
 
     async def level_task(self):
         while True:
-            #TODO fix
+            #TODO fix not avaulable on seed S3 and c3
             self.level = 60
             await asyncio.sleep(180)
     
@@ -146,8 +146,8 @@ class Battery:
                 print("zzzzz.....")
                 self.indication.value(1)
                 time.sleep(5)
-                deepsleep()
-            await asyncio.sleep(10)
+                machine.deepsleep()
+            await asyncio.sleep(60)
 
 '''
 
@@ -158,10 +158,9 @@ weight
 class Weight:
 
     def __init__(self, pin_out, pin_clk, cf=35):
-        #self.taste=Pin(20,Pin.IN, Pin.PULL_UP)
         self.weight = 0
         self.samples = 0
-        return
+        #return # testing without weight sensor 1/2
         self.hx = HX711(Pin(pin_out), Pin(pin_clk), 1)
         self.hx.wakeUp()
         self.hx.tara(25)
@@ -185,15 +184,11 @@ class Weight:
 
     async def load_sensor_task(self):
         while True:
-            return
+            #return # testing without weight sensor 2/2
             g = self.hx.masse(1)
-            #if (g > 70000):
-            #    return
             self.samples += 1
             self.weight += abs(g)
-            #print(g)
-            #print(abs(self.weight)+0.1/self.samples)
-            await asyncio.sleep_ms(200)
+            await asyncio.sleep_ms(50)
 
 '''
 
@@ -207,8 +202,7 @@ class Cadance:
         self.revolutions = 0
         self.lastRevTime = 0
         self.lastRevolutions = 0
-        pin_hall.irq(trigger=Pin.IRQ_RISING, handler=self.hall_sensor_task)
-        print("t")
+        pin_hall.irq(trigger=Pin.IRQ_RISING, handler=self.hall_sensor_task, wake=machine.DEEPSLEEP)
         self.callback = None
 
     def get_revolutions(self):
@@ -237,7 +231,7 @@ View
 class View:
     
     def __init__(self):
-        model = "c3"
+        model = "s3"
         if (model == "c3"):
             self.hall = 2
             self.indication = 10
@@ -263,8 +257,8 @@ class Controller:
     
     def __init__(self):
         self.view = View()
-        hall_sensor_pin = Pin(self.view.hall, Pin.IN) #TODO doesn't wake up on hall | 1 s3 | 2 c3 
-        esp32.wake_on_ext0(hall_sensor_pin, esp32.WAKEUP_ANY_HIGH)
+        hall_sensor_pin = Pin(self.view.hall, mode=Pin.IN, pull=Pin.PULL_UP) 
+        esp32.wake_on_ext0(hall_sensor_pin, esp32.WAKEUP_ANY_HIGH) #TODO doesn't wake up on hall 
         indication_pin = Pin(self.view.indication, Pin.OUT)  
         
          # initializing indication
@@ -281,31 +275,27 @@ class Controller:
         self.no_connection_counter = 0
 
     async def check_activity(self):
-        inactivity_time = 60
+        inactivity_counter = 0
         coasting_time = 3
         usb_mode = False # for model v0.3
         while True:
             lpt = self.cycling_power.last_published_time
-            now = time.time_ns()
-            diff_time = (now - lpt)/1e9
+            diff_time = (time.time_ns() - lpt)/1e9
             # detect coasting
-            if (diff_time > coasting_time and not lpt == 0):
+            if (diff_time > coasting_time):
                 print("Coasting")
-                self.cycling_power.publish_task(0,
+                self.cycling_power.publish_task(controller.cadance.get_revolutions(),
                                self.cadance.get_lastRevTime(), 
                                0, 
                                controller.battery.get_level(),
                                controller.weight.reset)
-            if not usb_mode:
-                print("test")
-                print(diff_time)
-                print(self.no_connection_counter)
-                # TODO check
-                if ((time.time_ns() - lpt) > inactivity_time and not lpt == 0) or self.no_connection_counter == 2:
+                
+                inactivity_counter = inactivity_counter + 1  
+            else:
+               inactivity_counter = 0
+                
+            if (not usb_mode and inactivity_counter > 2):
                     self.battery.set_power_down()
-                if lpt == 0 :
-                    # need to go to sleep if there is no connection
-                    self.no_connection_counter += 1
             await asyncio.sleep(3)
          
     async def tasks(self):
@@ -316,16 +306,17 @@ class Controller:
         t4 = asyncio.create_task(self.weight.load_sensor_task())
         await asyncio.gather(t0, t1, t2, t3, t4)
         
-# main        
+# main
 controller = Controller()
+
 def handle_revolution_update():
     controller.cycling_power.publish_task(controller.cadance.get_revolutions(),
                                controller.cadance.get_lastRevTime(), 
                                abs(controller.weight.get_weight())/controller.weight.get_samples(), 
                                controller.battery.get_level(),
                                controller.weight.reset)
+    
 controller.cadance.set_callback(handle_revolution_update)
-
 asyncio.run(controller.tasks())
 
 
