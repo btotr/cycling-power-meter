@@ -47,7 +47,7 @@ class BLE_Cycling_Power:
 
     def publish_task(self, revolutions, lastRevTime, force, battery_level, callback):
         # power calculation
-        mp = 0.5 # rouvy=2 garmin=1 TODO sniff brand
+        mp = 1 # rouvy=2 garmin=1 TODO sniff brand
         newton_ratio = 0.00980665 #= 1 gram
         meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
         now = time.time_ns()
@@ -188,7 +188,7 @@ class Weight:
             g = self.hx.masse(1)
             self.samples += 1
             self.weight += abs(g)
-            await asyncio.sleep_ms(50)
+            await asyncio.sleep_ms(200)
 
 '''
 
@@ -237,7 +237,7 @@ class View:
             self.indication = 10
             self.weight_out = 3
             self.weight_clock = 4
-            self.weight_cal = -9
+            self.weight_cal = -0.5
             self.battery = 4
         if (model == "s3"):
             self.hall = 1
