@@ -188,7 +188,7 @@ class Weight:
             g = self.hx.masse(1)
             self.samples += 1
             self.weight += abs(g)
-            await asyncio.sleep_ms(200)
+            await asyncio.sleep_ms(50)
 
 '''
 
@@ -202,9 +202,13 @@ class Cadance:
         self.revolutions = 0
         self.lastRevTime = 0
         self.lastRevolutions = 0
-        pin_hall.irq(trigger=Pin.IRQ_RISING, handler=self.hall_sensor_task, wake=machine.DEEPSLEEP)
+        self.hall_flag = asyncio.ThreadSafeFlag()
+        pin_hall.irq(trigger=Pin.IRQ_RISING, handler=self.trigger, wake=machine.DEEPSLEEP)
         self.callback = None
 
+    def trigger(self, pin):
+        self.hall_flag.set()
+    
     def get_revolutions(self):
         return self.revolutions
     
@@ -214,13 +218,16 @@ class Cadance:
     def get_lastRevTime(self):
         return self.lastRevTime
 
-    def hall_sensor_task(self, pin):
-        print("hall")
-        self.revolutions += 1
-        now = time.ticks_ms()
-        now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
-        self.lastRevTime =  now_1024
-        self.callback()
+    async def hall_sensor_task(self):
+        while True:
+            await self.hall_flag.wait()
+            print("hall")
+            self.revolutions += 1
+            now = time.ticks_ms()
+            now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
+            self.lastRevTime = now_1024
+            self.callback()
+            await asyncio.sleep_ms(100) 
 
 '''
 
@@ -237,7 +244,7 @@ class View:
             self.indication = 10
             self.weight_out = 3
             self.weight_clock = 4
-            self.weight_cal = -0.5
+            self.weight_cal = -0.3
             self.battery = 4
         if (model == "s3"):
             self.hall = 1
@@ -303,7 +310,8 @@ class Controller:
         t2 = asyncio.create_task(self.cycling_power.connection_task())
         t3 = asyncio.create_task(self.check_activity())
         t4 = asyncio.create_task(self.weight.load_sensor_task())
-        await asyncio.gather(t0, t1, t2, t3, t4)
+        t5 = asyncio.create_task(self.cadance.hall_sensor_task())
+        await asyncio.gather(t0, t1, t2, t3, t4, t5)
         
 # main
 controller = Controller()
