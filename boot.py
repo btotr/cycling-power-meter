@@ -47,7 +47,7 @@ class BLE_Cycling_Power:
 
     def publish_task(self, revolutions, lastRevTime, force, battery_level, callback):
         # power calculation
-        mp = 1 # rouvy=2 garmin=1 TODO sniff brand
+        mp = 2 # rouvy=2 garmin=1 TODO sniff brand
         newton_ratio = 0.00980665 #= 1 gram
         meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
         now = time.time_ns()
@@ -93,7 +93,7 @@ class BLE_Cycling_Power:
         self.location_characteristic.write(struct.pack('<B',0x05)) # left crunk
         self.feature_characteristic.write(struct.pack('<4B', 0x00, 0x10, 0x00, 0x08)) # non distribution and crank revolution
         # write device information
-        self.manufacturer_characteristic.write(struct.pack('<15s', b'open-kinetic-s3'))
+        self.manufacturer_characteristic.write(struct.pack('<15s', b'open-kinetic-c3'))
         self.software_rev_characteristic.write(struct.pack('<6s', b'v0.1.2'))
         print("Connection from", connection.device)
         self.connections.append(connection)
@@ -132,7 +132,7 @@ class Battery:
 
     async def level_task(self):
         while True:
-            #TODO fix not avaulable on seed S3 and c3
+            #TODO fix not available on seed S3 and c3
             self.level = 60
             await asyncio.sleep(180)
     
@@ -157,15 +157,16 @@ weight
 
 class Weight:
 
-    def __init__(self, pin_out, pin_clk, cf=35):
+    def __init__(self, pin_out, pin_clk, cf=35, callback=None):
         self.weight = 0
         self.samples = 0
         #return # testing without weight sensor 1/2
         self.hx = HX711(Pin(pin_out), Pin(pin_clk), 1)
         self.hx.wakeUp()
         self.hx.tara(25)
-        
         self.hx.calFaktor(cf)
+        self.prev_load = False
+        self.callback = callback
 
     def get_weight(self):
         if (not self.weight):
@@ -186,8 +187,17 @@ class Weight:
         while True:
             #return # testing without weight sensor 2/2
             g = self.hx.masse(1)
-            self.samples += 1
-            self.weight += abs(g)
+            print(g)
+            # negative means power
+            if (g < -1000) :
+                self.prev_load = True
+                self.samples += 1
+                self.weight += abs(g)
+                
+            if (self.prev_load == True and g > 0):
+                self.prev_load = False
+                #found cadance
+                self.callback()
             await asyncio.sleep_ms(50)
 
 '''
@@ -203,10 +213,10 @@ class Cadance:
         self.lastRevTime = 0
         self.lastRevolutions = 0
         self.hall_flag = asyncio.ThreadSafeFlag()
-        pin_hall.irq(trigger=Pin.IRQ_RISING, handler=self.trigger, wake=machine.DEEPSLEEP)
+        #pin_hall.irq(trigger=Pin.IRQ_RISING, handler=self.trigger, wake=machine.DEEPSLEEP)
         self.callback = None
 
-    def trigger(self, pin):
+    def trigger(self, pin=None):
         self.hall_flag.set()
     
     def get_revolutions(self):
@@ -227,7 +237,7 @@ class Cadance:
             now_1024 = now % 65536 # rollover 64000 sec / 1000 * 1024
             self.lastRevTime = now_1024
             self.callback()
-            await asyncio.sleep_ms(100) 
+            await asyncio.sleep_ms(50) 
 
 '''
 
@@ -238,20 +248,20 @@ View
 class View:
     
     def __init__(self):
-        model = "s3"
+        model = "c3"
         if (model == "c3"):
             self.hall = 2
             self.indication = 10
             self.weight_out = 3
             self.weight_clock = 4
-            self.weight_cal = -0.3
-            self.battery = 4
+            self.weight_cal = 15
+            self.battery = 5
         if (model == "s3"):
             self.hall = 1
             self.indication = 9
             self.weight_out = 2
             self.weight_clock = 3
-            self.weight_cal = -9
+            self.weight_cal = -10
             self.battery = 4
 
 '''
@@ -265,7 +275,7 @@ class Controller:
     def __init__(self):
         self.view = View()
         hall_sensor_pin = Pin(self.view.hall, mode=Pin.IN, pull=Pin.PULL_UP) 
-        esp32.wake_on_ext0(hall_sensor_pin, esp32.WAKEUP_ANY_HIGH) #TODO doesn't wake up on hall 
+        #esp32.wake_on_ext0(hall_sensor_pin, esp32.WAKEUP_ANY_HIGH) #TODO doesn't wake up on hall 
         indication_pin = Pin(self.view.indication, Pin.OUT)  
         
          # initializing indication
@@ -275,10 +285,10 @@ class Controller:
             indication_pin.value(0)
             time.sleep(0.3)
         
-        self.cycling_power = BLE_Cycling_Power()
-        self.weight = Weight(self.view.weight_out, self.view.weight_clock, self.view.weight_cal)
-        self.battery = Battery(self.view.battery, indication_pin)
         self.cadance = Cadance(hall_sensor_pin)
+        self.cycling_power = BLE_Cycling_Power()
+        self.weight = Weight(self.view.weight_out, self.view.weight_clock, self.view.weight_cal, self.cadance.trigger)
+        self.battery = Battery(self.view.battery, indication_pin)
         self.no_connection_counter = 0
 
     async def check_activity(self):
