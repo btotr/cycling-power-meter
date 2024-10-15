@@ -16,6 +16,9 @@ import random
 import struct
 import ustruct
 import time
+import network
+import socket
+
 
 '''
 
@@ -157,13 +160,14 @@ weight
 
 class Weight:
 
-    def __init__(self, pin_out, pin_clk, cf=35, callback=None):
+    def __init__(self, pin_out, pin_clk, cf=35, callback=None, storage=None):
         self.weight = 0
         self.samples = 0
         #return # testing without weight sensor 1/2
         self.hx = HX711(Pin(pin_out), Pin(pin_clk), 1)
         self.hx.wakeUp()
         self.hx.tara(25)
+        #TODO check storage
         self.hx.calFaktor(cf)
         self.prev_load = False
         self.callback = callback
@@ -181,6 +185,9 @@ class Weight:
     def reset(self):
         self.weight = 0
         self.samples = 0
+    
+    def set_cf(self, cf):
+        self.hx.calFaktor(cf)
 
 
     async def load_sensor_task(self):
@@ -241,6 +248,90 @@ class Cadance:
 
 '''
 
+Web server
+
+'''
+
+class Web_server:
+    def __init__(self, storage, callback):
+        self.callback = callback
+
+        # Set up an Access Point
+        ap = network.WLAN(network.AP_IF)
+        ap.active(True)
+        ap.config(essid='MAP', password='abcdefg')
+
+        #while not ap.active():
+        #    pass
+
+        print('Access Point active')
+        print('IP address:', ap.ifconfig()[0])
+
+        # Initialize NVS
+        self.storage = storage
+        
+        # Set up socket server
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.s.bind(('', 80))
+        self.s.listen(5)
+        print('Web server started')
+        
+    def web_page(self, stored_data):
+        html = f"""
+        <html>
+            <head>
+                <title>Kintic config</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+            </head>
+            <body>
+                <h1>Configuration</h1>
+                <form method="POST">
+                    <input type="number" value="{stored_data}" id="nvs_data" name="nvs_data" min="1" max="99">
+                    <input type="submit" value="Save">
+                </form>
+            </body>
+        </html>
+        """
+        return html
+    
+
+    async def web_server_task(self):
+        while True:
+            conn, addr = self.s.accept()
+            print('Got a connection from', addr)
+            request = conn.recv(1024)
+            request = request.decode('utf-8')
+            print(request)
+            
+            # Handle POST request
+            if request.startswith('POST'):
+                content_length = int(request.split('Content-Length: ')[1].split('\r\n')[0])
+                body = request.split('\r\n\r\n', 1)[1]
+                nvs_data = body.split('=')[1]
+                self.storage.set_i32('cf', int(nvs_data))
+                self.storage.commit()
+                self.callback(int(nvs_data))
+
+
+            # Read stored data
+            try:
+                stored_data = self.storage.get_i32('cf')
+                print(stored_data)
+            except OSError as e:
+                print("Error nvs:", e)
+                stored_data = "No data stored"
+            
+            response = self.web_page(stored_data)
+            conn.send('HTTP/1.1 200 OK\n')
+            conn.send('Content-Type: text/html\n')
+            conn.send('Connection: close\n\n')
+            conn.sendall(response)
+            conn.close()
+
+
+
+'''
+
 View
 
 '''
@@ -254,14 +345,12 @@ class View:
             self.indication = 10
             self.weight_out = 3
             self.weight_clock = 4
-            self.weight_cal = 15
             self.battery = 5
         if (model == "s3"):
             self.hall = 1
             self.indication = 9
             self.weight_out = 2
             self.weight_clock = 3
-            self.weight_cal = -10
             self.battery = 4
 
 '''
@@ -285,9 +374,18 @@ class Controller:
             indication_pin.value(0)
             time.sleep(0.3)
         
+        storage =  esp32.NVS('storage')
+        try:
+            stored_data = self.storage.get_i32('cf')
+        except:
+            stored_data = 1
+            print("cf not set")
+
+        
         self.cadance = Cadance(hall_sensor_pin)
         self.cycling_power = BLE_Cycling_Power()
-        self.weight = Weight(self.view.weight_out, self.view.weight_clock, self.view.weight_cal, self.cadance.trigger)
+        self.weight = Weight(stored_data, self.view.weight_out, self.view.weight_clock, self.cadance.trigger, storage)
+        self.web_server = Web_server(storage, self.weight.set_cf)
         self.battery = Battery(self.view.battery, indication_pin)
         self.no_connection_counter = 0
 
@@ -321,7 +419,8 @@ class Controller:
         t3 = asyncio.create_task(self.check_activity())
         t4 = asyncio.create_task(self.weight.load_sensor_task())
         t5 = asyncio.create_task(self.cadance.hall_sensor_task())
-        await asyncio.gather(t0, t1, t2, t3, t4, t5)
+        t6 = asyncio.create_task(self.web_server.web_server_task())
+        await asyncio.gather(t0, t1, t2, t3, t4, t5, t6)
         
 # main
 controller = Controller()
