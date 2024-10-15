@@ -253,6 +253,7 @@ Web server
 '''
 
 class Web_server:
+    
     def __init__(self, storage, callback):
         self.callback = callback
 
@@ -261,22 +262,16 @@ class Web_server:
         ap.active(True)
         ap.config(essid='MAP', password='abcdefg')
 
-        #while not ap.active():
-        #    pass
+        while not ap.active():
+            pass
 
         print('Access Point active')
         print('IP address:', ap.ifconfig()[0])
 
         # Initialize NVS
         self.storage = storage
-        
-        # Set up socket server
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.s.bind(('', 80))
-        self.s.listen(5)
-        print('Web server started')
-        
-    def web_page(self, stored_data):
+
+    def get_web_page(self, stored_data):
         html = f"""
         <html>
             <head>
@@ -294,41 +289,42 @@ class Web_server:
         """
         return html
     
+    async def handle_client(self, reader, writer):
+        print("Client connected")
+        request = await reader.read(1024)
+        request = request.decode('utf-8')
+        print(request)
+            
+        # Handle POST request
+        if request.startswith('POST'):
+            content_length = int(request.split('Content-Length: ')[1].split('\r\n')[0])
+            body = request.split('\r\n\r\n', 1)[1]
+            nvs_data = body.split('=')[1]
+            self.storage.set_i32('cf', int(nvs_data))
+            self.storage.commit()
+            self.callback(int(nvs_data))
+        
+        # Read stored data
+        try:
+            stored_data = self.storage.get_i32('cf')
+            print(stored_data)
+        except OSError as e:
+            print("Error nvs:", e)
+            stored_data = "No data stored"
+        
+        response = "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n"
+        response += self.get_web_page(stored_data)
+        
+        await writer.awrite(response)
+        await writer.aclose()
+        print("Client disconnected")
+    
 
     async def web_server_task(self):
+        server = await asyncio.start_server(self.handle_client, "", 80)
+        print('Server is running')
         while True:
-            conn, addr = self.s.accept()
-            print('Got a connection from', addr)
-            request = conn.recv(1024)
-            request = request.decode('utf-8')
-            print(request)
-            
-            # Handle POST request
-            if request.startswith('POST'):
-                content_length = int(request.split('Content-Length: ')[1].split('\r\n')[0])
-                body = request.split('\r\n\r\n', 1)[1]
-                nvs_data = body.split('=')[1]
-                self.storage.set_i32('cf', int(nvs_data))
-                self.storage.commit()
-                self.callback(int(nvs_data))
-
-
-            # Read stored data
-            try:
-                stored_data = self.storage.get_i32('cf')
-                print(stored_data)
-            except OSError as e:
-                print("Error nvs:", e)
-                stored_data = "No data stored"
-            
-            response = self.web_page(stored_data)
-            conn.send('HTTP/1.1 200 OK\n')
-            conn.send('Content-Type: text/html\n')
-            conn.send('Connection: close\n\n')
-            conn.sendall(response)
-            conn.close()
-
-
+            await asyncio.sleep(1)
 
 '''
 
