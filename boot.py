@@ -1,5 +1,6 @@
 import sys
 
+
 sys.path.append("")
 
 
@@ -19,6 +20,27 @@ import time
 import network
 import socket
 
+import webrepl
+webrepl.start() 
+
+
+'''
+
+Exponential Moving Average
+
+'''
+
+class EMASmooth:
+    def __init__(self, alpha):
+        self.alpha = alpha
+        self.smoothed_value = None
+    
+    def update(self, new_value):
+        if self.smoothed_value is None:
+            self.smoothed_value = new_value
+        else:
+            self.smoothed_value = self.alpha * new_value + (1 - self.alpha) * self.smoothed_value
+        return self.smoothed_value
 
 '''
 
@@ -160,17 +182,17 @@ weight
 
 class Weight:
 
-    def __init__(self, pin_out, pin_clk, cf=35, callback=None, storage=None):
+    def __init__(self, cf, pin_out, pin_clk, callback=None):
         self.weight = 0
         self.samples = 0
         #return # testing without weight sensor 1/2
         self.hx = HX711(Pin(pin_out), Pin(pin_clk), 1)
         self.hx.wakeUp()
         self.hx.tara(25)
-        #TODO check storage
         self.hx.calFaktor(cf)
         self.prev_load = False
         self.callback = callback
+        self.ema_smoother = EMASmooth(0.2)
 
     def get_weight(self):
         if (not self.weight):
@@ -193,13 +215,13 @@ class Weight:
     async def load_sensor_task(self):
         while True:
             #return # testing without weight sensor 2/2
-            g = self.hx.masse(1)
+            g =  self.hx.masse(1)
             print(g)
             # negative means power
             if (g < -1000) :
                 self.prev_load = True
                 self.samples += 1
-                self.weight += abs(g)
+                self.weight += self.ema_smoother.update(abs(g))
                 
             if (self.prev_load == True and g > 0):
                 self.prev_load = False
@@ -380,7 +402,7 @@ class Controller:
         
         self.cadance = Cadance(hall_sensor_pin)
         self.cycling_power = BLE_Cycling_Power()
-        self.weight = Weight(stored_data, self.view.weight_out, self.view.weight_clock, self.cadance.trigger, storage)
+        self.weight = Weight(stored_data, self.view.weight_out, self.view.weight_clock, self.cadance.trigger)
         self.web_server = Web_server(storage, self.weight.set_cf)
         self.battery = Battery(self.view.battery, indication_pin)
         self.no_connection_counter = 0
