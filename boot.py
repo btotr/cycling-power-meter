@@ -69,7 +69,7 @@ class BLE_Cycling_Power:
         # Connections
         self.connections = []
         self.last_published_time = 0
-        self.ema_smoother = EMASmooth(0.2)
+        self.ema_smoother = EMASmooth(0.8)
 
     def publish_task(self, revolutions, lastRevTime, force, battery_level, callback):
         # power calculation
