@@ -69,6 +69,7 @@ class BLE_Cycling_Power:
         # Connections
         self.connections = []
         self.last_published_time = 0
+        self.ema_smoother = EMASmooth(0.2)
 
     def publish_task(self, revolutions, lastRevTime, force, battery_level, callback):
         # power calculation
@@ -77,7 +78,7 @@ class BLE_Cycling_Power:
         meter_per_revolution = 1.09956 #2PI*0.175 need to use bluetooth opcode to set the crunk size
         now = time.time_ns()
         diff_time = (now - self.last_published_time)/1e9
-        power = int((force*newton_ratio)*mp*(meter_per_revolution/diff_time))
+        power = int(self.ema_smoother.update((force*newton_ratio)*mp*(meter_per_revolution/diff_time)))
       
         
 
@@ -192,7 +193,7 @@ class Weight:
         self.hx.calFaktor(cf)
         self.prev_load = False
         self.callback = callback
-        self.ema_smoother = EMASmooth(0.2)
+
 
     def get_weight(self):
         if (not self.weight):
@@ -221,7 +222,7 @@ class Weight:
             if (g < -1000) :
                 self.prev_load = True
                 self.samples += 1
-                self.weight += self.ema_smoother.update(abs(g))
+                self.weight += abs(g)
                 
             if (self.prev_load == True and g > 0):
                 self.prev_load = False
